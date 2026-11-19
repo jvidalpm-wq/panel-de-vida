@@ -225,7 +225,7 @@ function findSlot(plan){
 }
 
 /* ========== Render ========== */
-const TABS=[['hoy','Hoy'],['agenda','Agenda'],['finanzas','Dinero'],['proyectos','Proyectos'],['metas','Metas'],['pendientes','Pendientes'],['habitos','Hábitos'],['mas','Próximamente'],['ajustes','Ajustes']];
+const TABS=[['hoy','Hoy'],['agenda','Agenda'],['escuela','Escuela'],['finanzas','Dinero'],['proyectos','Proyectos'],['metas','Metas'],['pendientes','Pendientes'],['habitos','Hábitos'],['mas','Próximamente'],['ajustes','Ajustes']];
 const MAIN_TABS=['hoy','agenda','finanzas','proyectos'];
 function render(){
   const prev=$('#syncmsg')?.textContent||'', now=new Date();
@@ -238,7 +238,7 @@ function render(){
   $('#tabs').innerHTML=TABS.map(([k,n])=>`<button class="${view===k?'on':''}" data-act="tab" data-v="${k}">${n}</button>`).join('');
   $('#btabs').innerHTML=MAIN_TABS.map(k=>`<button class="${view===k?'on':''}" data-act="tab" data-v="${k}">${TABS.find(t=>t[0]===k)[1]}</button>`).join('')
     +`<button class="${MAIN_TABS.includes(view)?'':'on'}" data-act="tab" data-v="menu">Más</button>`;
-  $('#view').innerHTML=({hoy:vHoy,agenda:vAgenda,finanzas:vFin,proyectos:vProy,metas:vMeta,pendientes:vPend,habitos:vHab,mas:vMas,ajustes:vAjustes,menu:vMenu})[view]();
+  $('#view').innerHTML=({hoy:vHoy,agenda:vAgenda,finanzas:vFin,escuela:vEscuela,proyectos:vProy,metas:vMeta,pendientes:vPend,habitos:vHab,mas:vMas,ajustes:vAjustes,menu:vMenu})[view]();
   if(view==='finanzas')updRegForm();
 }
 function vMenu(){
@@ -310,12 +310,20 @@ function vHoy(){
   const open=S.blockers.filter(b=>!b.done);
   if(open.length) alerts.push(`Tienes ${open.length} pendiente${open.length>1?'s':''} que frena${open.length>1?'n':''} otras cosas.`);
   const due=gEvents().filter(e=>e.classroom&&e.end>=new Date()&&e.start<addDays(new Date(),14)).sort((a,b)=>a.start-b.start);
+  const C=S.cache.classroom, lim=addDays(new Date(),14);
+  const crPend=C?C.work.filter(w=>!crDone(w)&&w.due&&new Date(w.due)<lim&&(new Date(w.due)>addDays(new Date(),-30))).sort((a,b)=>new Date(a.due)-new Date(b.due)):[];
+  crPend.filter(w=>new Date(w.due)<addDays(new Date(),2)).forEach(w=>alerts.push(`${new Date(w.due)<new Date()?'Atrasada':'Vence pronto'}: «${esc(w.title)}» de ${esc(w.course)}.`));
+  const annRecent=C?C.ann.filter(a=>new Date(a.date)>addDays(new Date(),-14)).slice(0,3):[];
+  const entregas=C
+    ?(crPend.length?crPend.map(crItem).join(''):'<div class="empty">No tienes entregas pendientes en las próximas 2 semanas.</div>')
+    :(due.length?due.map(e=>`<div class="item"><div class="time">${fmtShort(e.start)}</div><div class="grow"><div class="title">${esc(e.title)}</div><div class="meta">${esc(e.calName)}</div></div></div>`).join(''):`<div class="empty">${S.cache.updated?'Sin entregas próximas.':'Conecta Google para ver tus entregas.'}</div>`);
   const habs=S.habits.map(h=>habRow(h,ts)).join('')||'<div class="empty">Crea tu primer hábito en la pestaña Hábitos.</div>';
   const nDeu=FIN?FIN.deudas.filter(d=>d.saldo<0).length:0;
   return `${timeline(ts)}${alerts.map(a=>`<div class="alert">${a}</div>`).join('')}
   <div class="cols"><div class="col">
     <section class="card"><h2>Agenda de hoy</h2>${dayList(ts)}</section>
-    <section class="card"><h2>Entregas de Classroom en 14 días</h2>${due.length?due.map(e=>`<div class="item"><div class="time">${fmtShort(e.start)}</div><div class="grow"><div class="title">${esc(e.title)}</div><div class="meta">${esc(e.calName)}</div></div></div>`).join(''):`<div class="empty">${S.cache.updated?'Sin entregas próximas.':'Conecta Google para ver tus entregas.'}</div>`}</section>
+    <section class="card"><h2>Entregas de Classroom en 14 días</h2>${entregas}${C?'<div class="row"><button class="b" data-act="tab" data-v="escuela">Ver todas mis clases</button></div>':''}</section>
+    ${annRecent.length?`<section class="card"><h2>Avisos de tus profesores</h2>${annRecent.map(a=>annItem(a)).join('')}</section>`:''}
   </div><div class="col">
     <section class="card"><h2>Dinero disponible</h2>${FIN?`<div class="big">${money(FIN.cuentas.reduce((s,r)=>s+r[1],0))}</div><div class="meta">Gastado este mes: ${money(FIN.mes.gas)}${nDeu?`. ${nDeu} deuda${nDeu>1?'s':''} por pagar.`:''}</div>`:'<div class="empty">Conecta Google para ver tu dinero.</div>'}<div class="row"><button class="b p" data-act="tab" data-v="finanzas">Registrar gasto</button></div></section>
     <section class="card"><h2>Hábitos de hoy</h2>${habs}</section>
@@ -406,7 +414,6 @@ function vMeta(){
 function vMas(){
   return `<div class="grid soon">
    <div class="card"><h2>Noticias de la mañana</h2>Resumen diario de economía mundial, México y temas polémicos, generado por una tarea programada de Claude.</div>
-   <div class="card"><h2>Avisos de Classroom</h2>Anuncios de profesores (requiere permiso extra de la API de Classroom).</div>
    <div class="card"><h2>Revisión semanal</h2>Un resumen cada domingo: qué avanzaste en proyectos, metas y hábitos.</div></div>`;
 }
 
@@ -422,7 +429,7 @@ function vAjustes(){
     <details style="margin-top:12px"><summary class="meta" style="cursor:pointer">Cómo obtener el Client ID (una sola vez, ~10 min)</summary>
     <ol class="steps meta">
       <li>Entra a <code>console.cloud.google.com</code> con tu cuenta y crea un proyecto nuevo.</li>
-      <li>«APIs y servicios» → «Biblioteca» → habilita <b>Google Calendar API</b> y <b>Google Sheets API</b>.</li>
+      <li>«APIs y servicios» → «Biblioteca» → habilita <b>Google Calendar API</b>, <b>Google Sheets API</b> y <b>Google Classroom API</b>.</li>
       <li>«Pantalla de consentimiento OAuth» → Externo → ponle nombre «Panel de Vida» → en «Usuarios de prueba» agrega tu correo.</li>
       <li>«Credenciales» → Crear credenciales → <b>ID de cliente OAuth</b> → Aplicación web.</li>
       <li>En «Orígenes autorizados de JavaScript» agrega <code>${esc(origin)}</code>.</li>
@@ -510,11 +517,11 @@ document.addEventListener('submit',e=>{
 });
 
 /* ========== Google (Calendar + Sheets) ========== */
-const SCOPES='https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/spreadsheets';
+const SCOPES=['calendar.readonly','spreadsheets','classroom.courses.readonly','classroom.announcements.readonly','classroom.coursework.me.readonly'].map(s=>'https://www.googleapis.com/auth/'+s).join(' ');
 const SHEETS='https://sheets.googleapis.com/v4/spreadsheets/';
 const sid=()=>S.settings.sheetId;
 let tokenClient,token=null;
-try{const t=JSON.parse(sessionStorage.getItem('pdv.tok'));if(t&&t.exp>Date.now())token=t.v}catch(e){}
+try{const t=JSON.parse(sessionStorage.getItem('pdv.tok'));if(t&&t.exp>Date.now()&&t.s===SCOPES)token=t.v}catch(e){}
 function gsSt(m){const a=$('#gstatus');if(a)a.textContent=m;const b=$('#syncmsg');if(b)b.textContent=m}
 function loadGsi(){return new Promise((res,rej)=>{if(window.google?.accounts){res();return}
   const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=()=>rej(new Error('No pude cargar Google (¿sin internet?)'));document.head.appendChild(s)})}
@@ -524,7 +531,7 @@ async function gConnect(){
   try{await loadGsi();
     if(!tokenClient)tokenClient=google.accounts.oauth2.initTokenClient({client_id:S.settings.clientId,scope:SCOPES,
       callback:async r=>{if(r.error){gsSt('Error: '+r.error);return}
-        token=r.access_token;try{sessionStorage.setItem('pdv.tok',JSON.stringify({v:token,exp:Date.now()+((r.expires_in||3600)-60)*1000}))}catch(e){}
+        token=r.access_token;try{sessionStorage.setItem('pdv.tok',JSON.stringify({v:token,s:SCOPES,exp:Date.now()+((r.expires_in||3600)-60)*1000}))}catch(e){}
         await syncAll();}});
     tokenClient.requestAccessToken({prompt:''});
   }catch(x){gsSt(x.message)}
@@ -545,6 +552,7 @@ async function sPut(data){return gfetch(`${SHEETS}${sid()}/values:batchUpdate`,{
 async function syncAll(){
   gsSt('Sincronizando…');const errs=[];
   try{await syncCalendar()}catch(x){errs.push('Calendario: '+x.message)}
+  try{await loadClassroom()}catch(x){errs.push('Classroom: '+x.message)}
   if(sid()){
     try{await syncPanelData()}catch(x){errs.push('Datos del panel: '+x.message)}
     try{await loadFin()}catch(x){errs.push('Finanzas: '+x.message)}
@@ -651,6 +659,55 @@ async function registrar(f){
     }
     await sPut(data);await loadFin();render();const s2=$('#regmsg');if(s2)s2.textContent='✓ '+msg;
   }catch(x){st.textContent='Error: '+x.message}
+}
+
+/* --- Classroom (solo lectura): clases, avisos y tus entregas --- */
+const CR='https://classroom.googleapis.com/v1/';
+async function loadClassroom(){
+  const c=await gfetch(`${CR}courses?studentId=me&courseStates=ACTIVE&pageSize=50`);
+  const courses=(c.courses||[]).map(x=>({id:x.id,name:x.name,link:x.alternateLink}));
+  const ann=[],work=[];
+  await Promise.all(courses.map(async co=>{
+    const [a,w,s]=await Promise.all([
+      gfetch(`${CR}courses/${co.id}/announcements?pageSize=5&announcementStates=PUBLISHED`).catch(()=>({})),
+      gfetch(`${CR}courses/${co.id}/courseWork?pageSize=40&courseWorkStates=PUBLISHED`).catch(()=>({})),
+      gfetch(`${CR}courses/${co.id}/courseWork/-/studentSubmissions?userId=me&pageSize=100`).catch(()=>({}))]);
+    (a.announcements||[]).forEach(x=>ann.push({course:co.name,text:x.text||'',date:x.updateTime||x.creationTime,link:x.alternateLink}));
+    const sub={};(s.studentSubmissions||[]).forEach(x=>sub[x.courseWorkId]=x);
+    (w.courseWork||[]).forEach(x=>{
+      let due=null;if(x.dueDate){const d=x.dueDate,t=x.dueTime||{};due=new Date(Date.UTC(d.year,d.month-1,d.day,t.hours??23,t.hours!=null?(t.minutes||0):59)).toISOString()}
+      const m=sub[x.id]||{};
+      work.push({course:co.name,title:x.title,desc:x.description||'',due,link:x.alternateLink,state:m.state||'NEW',late:!!m.late,grade:m.assignedGrade,max:x.maxPoints});
+    });
+  }));
+  ann.sort((a,b)=>new Date(b.date)-new Date(a.date));
+  S.cache.classroom={courses,ann,work,updated:Date.now()};saveLocal();
+}
+const crDone=w=>w.state==='TURNED_IN'||w.state==='RETURNED';
+function crState(w){
+  if(w.state==='RETURNED')return `<span class="tag">Calificada${w.grade!=null?`: ${w.grade}${w.max?'/'+w.max:''}`:''}</span>`;
+  if(w.state==='TURNED_IN')return '<span class="tag">Entregada</span>';
+  if(!w.due)return '<span class="tag">Sin fecha</span>';
+  const days=Math.ceil((new Date(w.due)-new Date())/864e5);
+  if(days<0||w.late)return '<span class="tag due">Atrasada</span>';
+  return `<span class="tag ${days<=2?'due':''}">${days===0?'Vence hoy':days===1?'Vence mañana':'Vence en '+days+' días'}</span>`;
+}
+function crItem(w){
+  return `<div class="item"><div class="time">${w.due?fmtShort(new Date(w.due)):'—'}</div><div class="grow"><div class="title"><a href="${esc(w.link)}" target="_blank" rel="noopener" style="color:inherit">${esc(w.title)}</a></div><div class="meta">${esc(w.course)}</div><div style="margin-top:4px">${crState(w)}</div></div></div>`;
+}
+function annItem(a,full){
+  const t=a.text.length>220&&!full?a.text.slice(0,220)+'…':a.text;
+  return `<div class="item"><div class="grow"><div class="title" style="font-size:14px">${esc(a.course)}</div><div style="white-space:pre-line;margin:2px 0 4px">${esc(t)}</div><div class="meta">${new Date(a.date).toLocaleDateString('es-MX',{day:'numeric',month:'short'})}, <a href="${esc(a.link)}" target="_blank" rel="noopener">abrir en Classroom</a></div></div></div>`;
+}
+function vEscuela(){
+  const C=S.cache.classroom;
+  if(!C)return `<div class="card"><h2>Classroom</h2><div class="empty">Pulsa «Sincronizar» y acepta los permisos de Classroom para ver tus clases, avisos y entregas.</div></div>`;
+  const now=new Date();
+  return `<div class="cols"><div class="col">${C.courses.map(co=>{
+    const ws=C.work.filter(w=>w.course===co.name).sort((a,b)=>(crDone(a)-crDone(b))||((a.due?new Date(a.due):Infinity)-(b.due?new Date(b.due):Infinity)));
+    const pend=ws.filter(w=>!crDone(w)).length;
+    return `<section class="card"><h2><a href="${esc(co.link)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(co.name)}</a></h2><div class="meta">${pend?pend+' pendiente'+(pend>1?'s':''):'Todo entregado'}</div>${ws.slice(0,8).map(crItem).join('')||'<div class="empty">Sin tareas publicadas.</div>'}</section>`;}).join('')}</div>
+  <div class="col"><section class="card"><h2>Avisos recientes</h2>${C.ann.slice(0,10).map(a=>annItem(a,true)).join('')||'<div class="empty">Sin avisos.</div>'}</section></div></div>`;
 }
 
 async function syncCalendar(){
