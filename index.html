@@ -311,7 +311,7 @@ function vHoy(){
   if(open.length) alerts.push(`Tienes ${open.length} pendiente${open.length>1?'s':''} que frena${open.length>1?'n':''} otras cosas.`);
   const due=gEvents().filter(e=>e.classroom&&e.end>=new Date()&&e.start<addDays(new Date(),14)).sort((a,b)=>a.start-b.start);
   const C=S.cache.classroom, lim=addDays(new Date(),14);
-  const crPend=C?C.work.filter(w=>!crDone(w)&&w.due&&new Date(w.due)<lim&&(new Date(w.due)>addDays(new Date(),-30))).sort((a,b)=>new Date(a.due)-new Date(b.due)):[];
+  const crPend=C?C.work.filter(w=>!crDone(w)&&!isHid(w)&&w.due&&new Date(w.due)<lim&&(new Date(w.due)>addDays(new Date(),-30))).sort((a,b)=>new Date(a.due)-new Date(b.due)):[];
   crPend.filter(w=>new Date(w.due)<addDays(new Date(),2)).forEach(w=>alerts.push(`${new Date(w.due)<new Date()?'Atrasada':'Vence pronto'}: «${esc(w.title)}» de ${esc(w.course)}.`));
   const annRecent=C?C.ann.filter(a=>new Date(a.date)>addDays(new Date(),-14)).slice(0,3):[];
   const entregas=C
@@ -322,6 +322,7 @@ function vHoy(){
   return `${timeline(ts)}${alerts.map(a=>`<div class="alert">${a}</div>`).join('')}
   <div class="cols"><div class="col">
     <section class="card"><h2>Agenda de hoy</h2>${dayList(ts)}</section>
+    ${newsCard()}
     <section class="card"><h2>Entregas de Classroom en 14 días</h2>${entregas}${C?'<div class="row"><button class="b" data-act="tab" data-v="escuela">Ver todas mis clases</button></div>':''}</section>
     ${annRecent.length?`<section class="card"><h2>Avisos de tus profesores</h2>${annRecent.map(a=>annItem(a)).join('')}</section>`:''}
   </div><div class="col">
@@ -413,7 +414,6 @@ function vMeta(){
 
 function vMas(){
   return `<div class="grid soon">
-   <div class="card"><h2>Noticias de la mañana</h2>Resumen diario de economía mundial, México y temas polémicos, generado por una tarea programada de Claude.</div>
    <div class="card"><h2>Revisión semanal</h2>Un resumen cada domingo: qué avanzaste en proyectos, metas y hábitos.</div></div>`;
 }
 
@@ -479,6 +479,10 @@ document.addEventListener('click',e=>{
   else if(a==='resuggest'){const keep={...p};const s=findSlotAfter(p);p.suggest=s}
   else if(a==='move'){p.date=p.suggest.date;p.time=p.suggest.time;p.status='pendiente';delete p.suggest}
   else if(a==='del'){if(!confirm('¿Borrar esta actividad?'))return;S.plans=S.plans.filter(x=>x.id!==id)}
+  else if(a==='crhide'){if(!crHid().includes(id))crHid().push(id)}
+  else if(a==='crshow'){S.crHidden=crHid().filter(x=>x!==id)}
+  else if(a==='crhidelate'){if(!confirm('¿Ocultar todas las tareas atrasadas? Puedes volver a verlas con «Ver ocultas».'))return;S.cache.classroom.work.filter(crLate).forEach(w=>{if(!crHid().includes(w.id))crHid().push(w.id)})}
+  else if(a==='crtoggle'){showHidden=!showHidden;render();return}
   else if(a==='delsub'){const pr=S.projects.find(x=>x.id===b.dataset.p);pr.sub=pr.sub.filter(s=>s.id!==id)}
   else if(a==='delblk'){S.blockers=S.blockers.filter(x=>x.id!==id)}
   else if(a==='delhab'){if(!confirm('¿Quitar este hábito?'))return;S.habits=S.habits.filter(x=>x.id!==id)}
@@ -556,12 +560,13 @@ async function syncAll(){
   if(sid()){
     try{await syncPanelData()}catch(x){errs.push('Datos del panel: '+x.message)}
     try{await loadFin()}catch(x){errs.push('Finanzas: '+x.message)}
+    try{await loadNews()}catch(x){/* aún sin pestaña NOTICIAS */}
   }
   render();gsSt(errs.length?errs.join(' · '):'Todo sincronizado.');
 }
 
 /* --- Datos del panel guardados en la pestaña oculta PANEL de la hoja --- */
-const SYNC_KEYS=['plans','blockers','habits','projects','goals'];
+const SYNC_KEYS=['plans','blockers','habits','projects','goals','crHidden'];
 let pushTimer=null;
 async function ensurePanelSheet(){
   const d=await gfetch(`${SHEETS}${sid()}?fields=sheets.properties.title`);
@@ -677,13 +682,17 @@ async function loadClassroom(){
     (w.courseWork||[]).forEach(x=>{
       let due=null;if(x.dueDate){const d=x.dueDate,t=x.dueTime||{};due=new Date(Date.UTC(d.year,d.month-1,d.day,t.hours??23,t.hours!=null?(t.minutes||0):59)).toISOString()}
       const m=sub[x.id]||{};
-      work.push({course:co.name,title:x.title,desc:x.description||'',due,link:x.alternateLink,state:m.state||'NEW',late:!!m.late,grade:m.assignedGrade,max:x.maxPoints});
+      work.push({id:co.id+':'+x.id,course:co.name,title:x.title,desc:x.description||'',due,link:x.alternateLink,state:m.state||'NEW',late:!!m.late,grade:m.assignedGrade,max:x.maxPoints});
     });
   }));
   ann.sort((a,b)=>new Date(b.date)-new Date(a.date));
   S.cache.classroom={courses,ann,work,updated:Date.now()};saveLocal();
 }
 const crDone=w=>w.state==='TURNED_IN'||w.state==='RETURNED';
+const crHid=()=>S.crHidden||(S.crHidden=[]);
+const isHid=w=>crHid().includes(w.id);
+const crLate=w=>!crDone(w)&&w.due&&new Date(w.due)<new Date();
+let showHidden=false;
 function crState(w){
   if(w.state==='RETURNED')return `<span class="tag">Calificada${w.grade!=null?`: ${w.grade}${w.max?'/'+w.max:''}`:''}</span>`;
   if(w.state==='TURNED_IN')return '<span class="tag">Entregada</span>';
@@ -693,7 +702,7 @@ function crState(w){
   return `<span class="tag ${days<=2?'due':''}">${days===0?'Vence hoy':days===1?'Vence mañana':'Vence en '+days+' días'}</span>`;
 }
 function crItem(w){
-  return `<div class="item"><div class="time">${w.due?fmtShort(new Date(w.due)):'—'}</div><div class="grow"><div class="title"><a href="${esc(w.link)}" target="_blank" rel="noopener" style="color:inherit">${esc(w.title)}</a></div><div class="meta">${esc(w.course)}</div><div style="margin-top:4px">${crState(w)}</div></div></div>`;
+  return `<div class="item"><div class="time">${w.due?fmtShort(new Date(w.due)):'—'}</div><div class="grow"><div class="title"><a href="${esc(w.link)}" target="_blank" rel="noopener" style="color:inherit">${esc(w.title)}</a></div><div class="meta">${esc(w.course)}</div><div class="row" style="margin-top:4px;align-items:center">${crState(w)}${crDone(w)?'':isHid(w)?`<button class="b" data-act="crshow" data-id="${esc(w.id)}">Mostrar de nuevo</button>`:`<button class="b" data-act="crhide" data-id="${esc(w.id)}" title="No es para mí o ya no se puede entregar">Ocultar</button>`}</div></div></div>`;
 }
 function annItem(a,full){
   const t=a.text.length>220&&!full?a.text.slice(0,220)+'…':a.text;
@@ -702,12 +711,28 @@ function annItem(a,full){
 function vEscuela(){
   const C=S.cache.classroom;
   if(!C)return `<div class="card"><h2>Classroom</h2><div class="empty">Pulsa «Sincronizar» y acepta los permisos de Classroom para ver tus clases, avisos y entregas.</div></div>`;
-  const now=new Date();
-  return `<div class="cols"><div class="col">${C.courses.map(co=>{
-    const ws=C.work.filter(w=>w.course===co.name).sort((a,b)=>(crDone(a)-crDone(b))||((a.due?new Date(a.due):Infinity)-(b.due?new Date(b.due):Infinity)));
-    const pend=ws.filter(w=>!crDone(w)).length;
+  const nLate=C.work.filter(w=>crLate(w)&&!isHid(w)).length, nHid=C.work.filter(isHid).length;
+  return `<div class="row" style="margin:0 0 16px">${nLate?`<button class="b" data-act="crhidelate">Ocultar las ${nLate} atrasadas</button>`:''}${nHid?`<button class="b" data-act="crtoggle">${showHidden?'Esconder las ocultas':'Ver ocultas ('+nHid+')'}</button>`:''}</div>
+  <div class="cols"><div class="col">${C.courses.map(co=>{
+    const ws=C.work.filter(w=>w.course===co.name&&(showHidden||!isHid(w))).sort((a,b)=>(crDone(a)-crDone(b))||((a.due?new Date(a.due):Infinity)-(b.due?new Date(b.due):Infinity)));
+    const pend=ws.filter(w=>!crDone(w)&&!isHid(w)).length;
     return `<section class="card"><h2><a href="${esc(co.link)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(co.name)}</a></h2><div class="meta">${pend?pend+' pendiente'+(pend>1?'s':''):'Todo entregado'}</div>${ws.slice(0,8).map(crItem).join('')||'<div class="empty">Sin tareas publicadas.</div>'}</section>`;}).join('')}</div>
   <div class="col"><section class="card"><h2>Avisos recientes</h2>${C.ann.slice(0,10).map(a=>annItem(a,true)).join('')||'<div class="empty">Sin avisos.</div>'}</section></div></div>`;
+}
+
+/* --- Noticias: las escribe cada mañana una rutina de Claude en la pestaña NOTICIAS --- */
+async function loadNews(){
+  const [v]=await sGet(['NOTICIAS!A2:F2000']);
+  const rows=v.filter(r=>r[0]&&r[2]).map(r=>({f:String(r[0]),tema:r[1]||'',t:r[2],q:r[3]||'',pq:r[4]||'',u:r[5]||''}));
+  const last=rows.reduce((m,r)=>r.f>m?r.f:m,'');
+  S.cache.news={date:last,items:rows.filter(r=>r.f===last)};saveLocal();
+}
+function newsCard(){
+  const N=S.cache.news;if(!N||!N.items.length)return '';
+  const d=parseYmd(N.date),old=N.date!==todayStr();
+  return `<section class="card"><h2>Noticias ${old?'del '+fmtShort(d):'de hoy'}</h2>${N.items.map(n=>`<div class="item"><div class="grow">
+    <div class="meta">${esc(n.tema)}</div><div class="title">${n.u?`<a href="${esc(n.u)}" target="_blank" rel="noopener" style="color:inherit">${esc(n.t)}</a>`:esc(n.t)}</div>
+    <div style="margin-top:2px">${esc(n.q)}</div>${n.pq?`<div class="planb" style="margin-top:6px"><b>Por qué importa:</b> ${esc(n.pq)}</div>`:''}</div></div>`).join('')}</section>`;
 }
 
 async function syncCalendar(){
